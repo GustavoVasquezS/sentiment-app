@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+
+    // Migración incremental: todavía quedan vistas en .jsx (ver plan
+    // sección 3) — allowJs las deja convivir con los módulos .ts/.tsx ya
+    // migrados hasta que se conviertan todas.
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,155 @@
+// Esquema traducido 1:1 desde sentiment_backend_java/schema.sql, con dos
+// mejoras deliberadas: la columna de password se renombra (el dump original
+// tenia un problema real de encoding en "contraseña") y el campo de
+// sentimiento pasa de varchar libre a enum, alineado con los valores que
+// devuelve el microservicio ML (services/ml) en el campo "prevision".
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Sentimiento {
+  Positivo
+  Neutro
+  Negativo
+}
+
+model Rol {
+  id     Int    @id @default(autoincrement()) @map("rol_id")
+  nombre String @unique @map("nombre_rol")
+
+  usuarios UsuarioRol[]
+
+  @@map("rol")
+}
+
+model Usuario {
+  id           Int    @id @default(autoincrement()) @map("usuario_id")
+  nombre       String
+  apellido     String
+  correo       String @unique
+  passwordHash String @map("password_hash")
+
+  roles              UsuarioRol[]
+  categorias         Categoria[]
+  productos          Producto[]
+  sesiones           Sesion[]
+  passwordResetTokens PasswordResetToken[]
+
+  @@map("usuarios")
+}
+
+// Reemplaza la tabla de join implicita "user_rol" del dump original con un
+// modelo explicito: mismo esquema relacional, mas facil de tipar en Prisma.
+model UsuarioRol {
+  usuarioId Int @map("user_id")
+  rolId     Int @map("rol_id")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  rol     Rol     @relation(fields: [rolId], references: [id], onDelete: Cascade)
+
+  @@id([usuarioId, rolId])
+  @@map("user_rol")
+}
+
+// Reemplaza el flujo de reset-password basado en JWT reutilizado por un
+// token dedicado, de un solo uso y con expiracion propia (mejora deliberada
+// sobre el diseño original, ver plan seccion 2).
+model PasswordResetToken {
+  id        Int      @id @default(autoincrement())
+  tokenHash String   @unique @map("token_hash")
+  usuarioId Int      @map("usuario_id")
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
+
+model Categoria {
+  id          Int     @id @default(autoincrement()) @map("categoria_id")
+  nombre      String  @map("nombre_categoria")
+  descripcion String?
+  usuarioId   Int     @map("usuario_id")
+
+  usuario   Usuario    @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  productos Producto[]
+
+  @@map("categoria")
+}
+
+model Producto {
+  id                   Int       @id @default(autoincrement()) @map("producto_id")
+  nombre               String    @map("nombre_producto")
+  totalMenciones       Int       @default(0) @map("total_menciones")
+  positivos            Int       @default(0)
+  negativos            Int       @default(0)
+  neutrales            Int       @default(0)
+  fechaCreacion        DateTime  @default(now()) @map("fecha_creacion")
+  ultimaActualizacion  DateTime? @updatedAt @map("ultima_actualizacion")
+  categoriaId          Int       @map("categoria_id")
+  usuarioId            Int       @map("usuario_id")
+
+  categoria       Categoria        @relation(fields: [categoriaId], references: [id], onDelete: Cascade)
+  usuario         Usuario          @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  sesiones        Sesion[]
+  sesionProductos SesionProducto[]
+
+  @@map("producto")
+}
+
+model Sesion {
+  id         Int      @id @default(autoincrement()) @map("sesion_id")
+  fecha      DateTime @default(now())
+  avgScore   Float    @map("avg_score")
+  total      Int
+  positivos  Int
+  negativos  Int
+  neutrales  Int
+  usuarioId  Int      @map("usuario_id")
+  productoId Int?     @map("producto_id")
+
+  usuario         Usuario          @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  producto        Producto?        @relation(fields: [productoId], references: [id])
+  comentarios     Comentario[]
+  sesionProductos SesionProducto[]
+
+  @@map("sesion")
+}
+
+model Comentario {
+  id           Int         @id @default(autoincrement()) @map("comentario_id")
+  texto        String
+  sentimiento  Sentimiento
+  probabilidad Float
+  sesionId     Int         @map("sesion_id")
+
+  sesion Sesion @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+
+  @@map("comentario")
+}
+
+// Tabla de union para sesiones multi-producto: guarda las estadisticas de
+// cada producto acotadas a esa sesion puntual (distinto de los contadores
+// acumulados en Producto).
+model SesionProducto {
+  id                Int @id @default(autoincrement()) @map("sesion_producto_id")
+  sesionId          Int @map("sesion_id")
+  productoId        Int @map("producto_id")
+  mencionesSesion   Int @default(0) @map("menciones_sesion")
+  positivosSesion   Int @default(0) @map("positivos_sesion")
+  negativosSesion   Int @default(0) @map("negativos_sesion")
+  neutralesSesion   Int @default(0) @map("neutrales_sesion")
+
+  sesion   Sesion   @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+  producto Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  @@map("sesion_producto")
+}
