@@ -82,25 +82,40 @@ depender del microservicio Python real.
 
 ## Despliegue
 
-2 proveedores: **Render** (backend `apps/api`, microservicio `services/ml`,
-Postgres) y **Vercel** (frontend `apps/web`). Actualizado respecto al plan
-original (que apuntaba a Railway para el backend) porque el trial de
-Railway del usuario caducó y ya tiene plan Hobby pago en Render — mismo
-principio de 2 proveedores, distinto proveedor para el lado backend.
+✅ **Desplegado y verificado en producción** (2026-08-17). 2 proveedores:
+**Render** (backend `apps/api`, microservicio `services/ml`, Postgres) y
+**Vercel** (frontend `apps/web`). Adaptado respecto al plan original —
+apuntaba a Railway para el backend, pero el trial de Railway caducó
+durante el despliegue; se migró todo a Render (donde el usuario ya tenía
+plan Hobby pago) manteniendo el mismo principio de 2 proveedores.
 
-Orden recomendado (ver checklist completo de secretos en la sección 9 del
-plan, `C:\Users\light\.claude\plans\este-es-un-proyecto-humble-giraffe.md`):
+**URLs de producción:**
+- Frontend: `https://sentiment-app-web.vercel.app`
+- Backend: `https://sentiment-app-api.onrender.com/project/api/v2` (docs en `/docs`)
+- ML: `https://sentiment-app-ml.onrender.com`
 
-1. **Rotar los secretos filtrados en los repos viejos** (urgente, no depende de nada más): contraseña de la Postgres vieja en Render, JWT secret hardcodeado, API key de Resend, app password de Gmail.
+**Servicios en Render** (`sentiment-app-db`, `sentiment-app-api`, `sentiment-app-ml`)
+— los tres en la región Oregon. `services/ml` y `apps/api` corren en el
+plan **Free** (no en Private Service / plan pago como planeaba la sección
+8 del plan original — restricción de presupuesto real del usuario), así
+que ambos se duermen tras 15 min de inactividad. Mitigación: `ml.client.ts`
+usa un timeout de 60s (ver commit `7222a12`) para tolerar el cold start
+verificado en producción (~41s); opcionalmente se puede armar un ping
+externo gratuito (cron-job.org / UptimeRobot) a `/health` de ambos cada
+10-14 min para que no lleguen a dormirse.
+
+Checklist de rotación de secretos (sección 9 del plan) — **completo**:
+Resend rotada, Gmail app password ya no vinculada, Postgres vieja de
+Render auto-expirada (plan free, >90 días), JWT viejo sin efecto (el
+backend Java que lo usaba ya no existe, Railway caducado).
+
+Pasos seguidos (para referencia / repetir en otro entorno):
+1. Rotar secretos filtrados en los repos viejos.
 2. Crear el repo `sentiment-app` en GitHub y pushear.
-3. En Render, dentro de la misma cuenta:
-   - Crear una **PostgreSQL** nueva (plan pago, no la free de 90 días) → copiar la `Internal Database URL`.
-   - Crear un **Private Service** para `services/ml` (root directory `services/ml`, build con su `Dockerfile`) — al ser privado, solo lo alcanzan otros servicios de la cuenta, no internet.
-   - Crear un **Web Service** para `apps/api` (root directory `apps/api`, build con su `Dockerfile`) con env vars: `DATABASE_URL` (la Internal Database URL de arriba), `JWT_SECRET` (nuevo, alta entropía), `ML_API_BASE_URL` (URL interna del Private Service de `ml`), `RESEND_API_KEY` (la nueva, del paso 1), `FRONTEND_URL` (la URL de Vercel del paso 4), `ALLOWED_ORIGINS` (la URL de Vercel).
-   - Correr `npx prisma migrate deploy` contra la Postgres nueva (desde el Shell de Render o localmente apuntando `DATABASE_URL` a la External Database URL).
-4. En Vercel: importar `apps/web`, con `VITE_API_BASE_URL` apuntando a la URL pública del Web Service de `api` en Render.
-5. Smoke test end-to-end contra las URLs de producción.
-6. Dar de baja los servicios viejos (la API de ML vieja y la Postgres vieja en Render, el backend Java viejo en Railway).
+3. En Render: Postgres nueva → Web Service `ml` (Free, root `services/ml`) → Web Service `api` (Free, root `apps/api`, con las 8 env vars) → `prisma migrate deploy` contra la Internal/External Database URL.
+4. En Vercel: importar `apps/web`, root directory `apps/web`, env var `VITE_API_BASE_URL` apuntando al `api` de Render.
+5. Actualizar `FRONTEND_URL`/`ALLOWED_ORIGINS` en `api` con la URL real de Vercel (necesario para que el CORS deje pasar al frontend).
+6. Smoke test end-to-end (health, registro, login, análisis de sentimiento, preflight CORS) — todo verificado con curl antes de probar la UI real.
 
 ## Documentación de la API
 
@@ -129,4 +144,5 @@ ya que no hay Docker/Postgres disponibles acá.
 - ✅ `apps/web`: migración completa a TypeScript — 100% de `src/` es `.ts`/`.tsx` (salvo `tailwind.config.js`, estándar en proyectos Tailwind). Código muerto eliminado (`src/pages/`, `dist/` commiteado, bug de archivo sin extensión en `utils/formatName`, URLs hardcodeadas a `localhost` en `CategorySelectionView`/`ProductSelectionView`). Build (`npm run build`) y typecheck (`npm run typecheck`) verificados sin errores.
 - ✅ Tests de integración: `auth`, `categoria`, `producto`, `sesion` y `csv` (con cliente ML mockeado). Compilan y corren limpio; requieren Postgres real para pasar (no disponible en este entorno de desarrollo — se verificó solo la compilación/estructura).
 - ✅ CI: `.github/workflows/ci.yml` con los tres jobs descritos arriba.
-- ⏳ Pendiente: el corte de despliegue + rotación de secretos descritos en el plan (necesita acceso a las cuentas de Railway/Vercel/Resend).
+- ✅ Despliegue + rotación de secretos: completo, ver sección "Despliegue" arriba. Verificado end-to-end contra producción real (registro, login, análisis de sentimiento, CORS).
+- ⏳ Pendiente (opcional, no bloqueante): ping externo gratuito para evitar cold starts del plan Free en demos; tests de integración de categoria/producto/sesion/csv corridos contra una Postgres real (por ahora solo verificados en compilación/estructura).
