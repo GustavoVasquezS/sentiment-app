@@ -13,7 +13,12 @@ export interface PredictResponse {
   review_required: boolean;
 }
 
-const TIMEOUT_MS = 10_000;
+// 60s en vez de un timeout corto: en producción services/ml corre en el
+// plan Free de Render, que se duerme tras 15 min de inactividad y puede
+// tardar hasta ~60s en despertar en el primer request (verificado: 41s en
+// el deploy real). Un timeout corto reportaba "servicio no disponible"
+// incluso cuando el servicio simplemente estaba despertando.
+const TIMEOUT_MS = 60_000;
 
 async function callMlApi<T>(path: string, body: unknown): Promise<T> {
   let response: Response;
